@@ -5,7 +5,7 @@ import random
 import pygame
 from pygame.image import load
 from pygame.transform import scale
-from pygame.key import get_pressed as key_press
+# from pygame.key import get_pressed as key_press
 from pygame.mouse import get_pressed as mouse_press
 from pygame.mouse import get_pos as mouse_pos
 from pygame.font import SysFont
@@ -16,34 +16,54 @@ pygame.init()
 pygame.font.init()
 pygame.camera.init()
 
-WIN_SIZE = WIDTH, HEIGHT = 1000, 600
-TILE_SIZE = 40
+WIN_SCALE = 1.4
 
-GRAVITY = 0.6
-is_start = False
+WIN_SIZE = WIDTH, HEIGHT = int(1000 * WIN_SCALE), int(600 * WIN_SCALE)
+TILE_SIZE = 50
+
+SCALE = 1
+# Dino
+DINO_WIDTH = 100 * SCALE
+DINO_HEIGHT = 0.8 * DINO_WIDTH
+DINO_DOWN_TIMER = 2000
+
+# Obstcle
+CACTUS_WIDTH = 40 * SCALE
+CACTUS_HEIGHT = 1.5 * CACTUS_WIDTH
+
+CRATE_WIDTH = 50 * SCALE
+CRATE_HEIGHT = CRATE_WIDTH
+
+STONE_WIDTH = 40 * SCALE
+STONE_HEIGHT = 1.25 * STONE_WIDTH
+
+# Helicopter
+
+HELICOPTER_WIDTH = 150 * SCALE
+HELICOPTER_HEIGHT = HELICOPTER_WIDTH / 3
 
 
 class Tile:
     def __init__(self, tilemap, image, x: int, y: int):
-        self.tilemap = tilemap
+        self.tilemap: TimeMap = tilemap
         self.image = image
         self.rect = self.image.get_rect(topleft=(x, y))
         self.speed_force = 4
 
     def draw(self):
-        self.tilemap.bg.app.window.blit(self.image, self.rect)
+        self.tilemap.bg.scene.window.blit(self.image, self.rect)
 
     def update(self):
-        self.rect.x -= self.tilemap.bg.speed * self.speed_force
+        self.rect.x -= self.tilemap.bg.speed  # * self.speed_force
 
-        if self.rect.x < -TILE_SIZE:
-            self.rect.x = WIDTH + TILE_SIZE % (self.tilemap.bg.speed * self.speed_force)
+        if self.rect.x <= - TILE_SIZE:
+            self.rect.x = WIDTH + 2 * TILE_SIZE + self.rect.x  # % (self.tilemap.bg.speed * self.speed_force)
 
 
 class TimeMap:
     def __init__(self, bg):
         self.tileset = self.get_tileset()
-        self.bg = bg
+        self.bg: Bg = bg
 
     def get_images(self) -> list:
         images = []
@@ -68,18 +88,19 @@ class TimeMap:
 
         for tile in self.tileset:
             tile.draw()
-            tile.update()
+            if not self.bg.scene.is_pause:
+                tile.update()
 
 
 class Bg:
-    def __init__(self, app):
-        self.app: Scene = app
+    def __init__(self, scene):
+        self.scene: Scene = scene
         self.image = self.get_image()
         self.rect = self.image.get_rect(topleft=(0, 0))
 
         self.tilemap = TimeMap(self)
 
-        self.speed = 1
+        self.speed = 4
 
     def get_image(self):
         image = load("assets/deserttileset/BG.png").convert_alpha()
@@ -87,14 +108,14 @@ class Bg:
         return image
 
     def draw(self):
-        self.app.window.blit(self.image, self.rect)
-        self.app.window.blit(self.image, (self.rect.x + self.rect.width, self.rect.y))
+        self.scene.window.blit(self.image, self.rect)
+        self.scene.window.blit(self.image, (self.rect.x + self.rect.width, self.rect.y))
 
         self.tilemap.draw()
-        # pygame.draw.rect(self.app.window, "red", self.rect, 40)
+        # pygame.draw.rect(self.scene.window, "red", self.rect, 40)
 
     def update(self):
-        self.rect.x -= self.speed
+        self.rect.x -= self.speed // 2
         if self.rect.x < -WIDTH:
             self.rect.x = 0
 
@@ -126,9 +147,9 @@ class Obstacle:
             image = load(f"assets/deserttileset/Objects/{name}.png").convert_alpha()
             img_list = []
             if name.startswith("Cactus"):
-                image = scale(image, (40, 60))
+                image = scale(image, (CACTUS_WIDTH, CACTUS_HEIGHT))
             elif name in ("Crate", "StoneBlock"):
-                image = scale(image, (50, 50))
+                image = scale(image, (CRATE_WIDTH, CRATE_HEIGHT))
                 r0_image = pygame.transform.rotate(image, 5)
                 r1_image = pygame.transform.rotate(image, 15)
                 r2_image = pygame.transform.rotate(image, 25)
@@ -140,7 +161,7 @@ class Obstacle:
                 r8_image = pygame.transform.rotate(image, 85)
                 img_list += [r0_image, r1_image, r2_image, r3_image, r4_image, r5_image, r6_image, r7_image, r8_image]
             else:
-                image = scale(image, (40, 50))
+                image = scale(image, (STONE_WIDTH, STONE_HEIGHT))
             img_list.insert(0, image)
             image_dict[name] = img_list
 
@@ -150,11 +171,9 @@ class Obstacle:
         self.scene.window.blit(self.image, self.rect)
 
     def update(self):
-        self.rect.x -= self.scene.bg.speed * self.scene.bg.tilemap.tileset[0].speed_force
+        self.rect.x -= self.scene.bg.speed  # * self.scene.bg.tilemap.tileset[0].speed_force
         if self.rect.x + 4 * self.rect.width < 0:
             self.is_active = False
-            # self.rect.x = WIDTH + 100
-            # del self.scene.obstacle_list[0]
             pass
 
         if self.image_name in ("Crate", "StoneBlock"):
@@ -174,6 +193,8 @@ class Obstacle:
 
 
 class Helicopter:
+    SPEED = 2
+
     def __init__(self, scene, width: int, height: int, x, y):
         self.scene: Scene = scene
         self.images: tuple = self.get_images(width, height)
@@ -181,8 +202,12 @@ class Helicopter:
         self.image: pygame.Surface = self.images[self.frame_index]
         self.rect = self.image.get_rect(midbottom=(x, y))
         self.anim_speed = 2
-        self.speed = 5
+        self.speed = self.SPEED
         self.is_active = True
+
+    @classmethod
+    def change_speed(cls, speed: int):
+        cls.SPEED += speed
 
     def get_images(self, width: int, height: int) -> tuple:
         images = []
@@ -195,12 +220,12 @@ class Helicopter:
 
     def draw(self):
         self.scene.window.blit(self.image, self.rect)
-        pygame.draw.rect(self.scene.window, "red", self.rect, 2)
+        # pygame.draw.rect(self.scene.window, "red", self.rect, 2)
 
     def update(self):
         self.animate()
         if self.rect.x > -self.rect.width:
-            self.rect.x -= (self.scene.bg.speed * self.speed)
+            self.rect.x -= (self.scene.bg.speed + self.speed)
         else:
             self.is_active = False
 
@@ -214,8 +239,8 @@ class Helicopter:
 
 
 class Dino:
-    def __init__(self, app, x, y, width, height):
-        self.app: Scene = app
+    def __init__(self, scene, x, y, width, height):
+        self.scene: Scene = scene
 
         self.width = width
         self.height = height
@@ -227,13 +252,20 @@ class Dino:
         self.rect: pygame.Rect = self.image.get_rect(midbottom=(x, y))
 
         self.anim_speed = 6
+        self.jump_anim_sped = 3
+        self.ANIM_SPEED = self.anim_speed
         self.direction = 0
+        self.is_change_speed = False
 
         self.alive = True
 
         self.is_jumping = False
         self.on_ground = False
+        self.jump_force = -12 * SCALE
         self.vel_y = 0
+
+        self.down_ticks = 0
+        self.down_timer = DINO_DOWN_TIMER
 
     def get_images(self) -> dict:
         image_dict: dict = {}
@@ -254,17 +286,15 @@ class Dino:
         return image_dict
 
     def draw(self):
-
-        self.app.window.blit(self.image, self.rect)
-
-        # pygame.draw.rect(self.app.window, "blue",
-        #                  (self.rect.x, self.rect.y, self.rect.width, self.rect.height), 1)
+        self.scene.window.blit(self.image, self.rect)
+        # pygame.draw.rect(self.scene.window, "blue", self.rect, 5)
 
     def update(self):
         self.animate()
-        if self.app.game_class.is_active_start:
+        if self.scene.game_class.is_active_start:
             self.jump()
             self.collide_obstacle()
+            self.down()
         else:
             self.walk()
 
@@ -273,7 +303,14 @@ class Dino:
         if self.alive:
 
             if self.frame_index == len(self.images[self.state]) * self.anim_speed - 1:
-                self.frame_index = 0
+                if self.state in ("Down", "Jump"):
+                    self.frame_index -= 1
+                else:
+                    self.frame_index = 0
+                    if self.is_change_speed and self.anim_speed > 2:
+                        self.is_change_speed = not self.is_change_speed
+                        self.anim_speed -= 1
+                        self.ANIM_SPEED = self.anim_speed
 
         else:
             if self.frame_index > len(self.images[self.state]) * self.anim_speed - 1:
@@ -287,16 +324,16 @@ class Dino:
         if self.is_jumping:
             self.change_state("Jump")
 
-            self.vel_y = -13
+            self.vel_y = self.jump_force
             self.is_jumping = False
             self.on_ground = False
 
         if not self.on_ground:
-            self.vel_y += GRAVITY
+            self.vel_y += self.scene.game_class.GRAVITY
             dy += self.vel_y
 
-        if self.rect.bottom + dy - self.rect.height // 7 > self.app.bg.get_ground().rect.top:
-            dy = self.app.bg.get_ground().rect.top - self.rect.bottom + self.rect.height // 7
+        if self.rect.bottom + dy - self.rect.height // 7 > self.scene.bg.get_ground().rect.top:
+            dy = self.scene.bg.get_ground().rect.top - self.rect.bottom + self.rect.height // 7
             self.on_ground = True
             if self.alive:
                 self.change_state("Run")
@@ -305,38 +342,58 @@ class Dino:
 
     def collide_obstacle(self):
         if self.alive:
-            for obstacle in self.app.obstacle_list:
-                if obstacle.rect.colliderect(self.rect.x + 15, self.rect.y, self.rect.width // 2,
-                                             self.rect.height // 1.5):
-                    self.alive = False
-                    self.change_state("Dead")
-                    self.app.bg.speed = 0
-                    obstacle.rotate_speed = 0
+            for obstacle in self.scene.obstacle_list:
+                y = self.rect.y
+                if isinstance(obstacle, Obstacle):
+                    if obstacle.rect.colliderect(self.rect.x + 15, y, self.rect.width // 2,
+                                                 self.rect.height // 1.5):
+                        self.alive = False
+                        self.change_state("Dead")
+                        self.scene.bg.speed = 0
+                        obstacle.rotate_speed = 0
+
+                else:
+                    y = 0
+                    if self.state == "Down":
+                        y += 20
+
+                    if (
+                            obstacle.rect.x - self.rect.width // 3 < self.rect.x < obstacle.rect.x - self.rect.width // 3 + obstacle.rect.width // 2) and \
+                            self.rect.top + 10 + y < obstacle.rect.bottom:
+                        self.alive = False
+                        self.change_state("Dead")
+                        self.scene.bg.speed = 0
+                        obstacle.rotate_speed = 0
 
     def change_state(self, new_state: str):
-
         if self.state != new_state:
             self.state = new_state
             self.frame_index = 0
-            self.anim_speed = 6
+            self.anim_speed = self.ANIM_SPEED
             if self.state == "Jump":
-                self.anim_speed = 3
+                self.anim_speed = self.jump_anim_sped
 
     def walk(self):
         if self.state == "Walk":
 
             if self.direction == 0:
-                if self.rect.midbottom[0] < WIDTH - 250:
+                if self.rect.midbottom[0] < WIDTH - (100 * self.scene.game_class.start_screen.animate_dino_scale) / 2:
                     self.rect.x += 2
                 else:
                     self.change_state("Idle")
                     self.direction = 0 if self.direction == 1 else 1
             else:
-                if self.rect.midbottom[0] > 250:
+                if self.rect.midbottom[0] > (100 * self.scene.game_class.start_screen.animate_dino_scale) / 2:
                     self.rect.x -= 2
                 else:
                     self.change_state("Idle")
                     self.direction = 0 if self.direction == 1 else 1
+
+    def down(self):
+        if self.alive:
+            if self.state == "Down":
+                if pygame.time.get_ticks() - self.down_ticks > self.down_timer:
+                    self.change_state("Run")
 
 
 class Button:
@@ -370,6 +427,35 @@ class Button:
         return self.is_clicked
 
 
+class ImageButton(Button):
+    def __init__(self, image, x, y):
+        super().__init__(image, x, y)
+
+    def draw(self, window: pygame.Surface):
+
+        window.blit(self.image, (
+            (window.get_width() - self.rect.width) // 2,
+            (window.get_height() - self.rect.height) // 2)
+                    )
+
+        if self.rect.x < mouse_pos()[0] < self.rect.x + self.rect.width and \
+                self.rect.y < mouse_pos()[1] < self.rect.y + self.rect.height:
+            if not self.is_clicked and mouse_press()[0] == 1:
+                self.is_clicked = True
+
+
+class Write:
+    def __init__(self, scene, text: str, color: str | tuple):
+        self.scene: Scene = scene
+        self.font = SysFont("tlwgtypo", int(40 * WIN_SCALE), True)
+        self.color = color
+        self.text = text
+
+    def draw(self, x: int, y: int, value: int | str):
+        self.text_render = self.font.render(f"{self.text}: {value}", True, self.color)
+        self.scene.window.blit(self.text_render, (x, y))
+
+
 class StartScreen:
     def __init__(self, game_class, is_restart: bool = False):
         self.game_class: Game = game_class
@@ -377,8 +463,8 @@ class StartScreen:
         self.window = pygame.display.get_surface()
         self.clock = pygame.time.Clock()
 
-        self.font = SysFont("tlwgtypo", 50, True)
-        self.font2 = SysFont("tlwgtypo", 300, True)
+        self.font = SysFont("tlwgtypo", int(50 * WIN_SCALE), True)
+        self.font2 = SysFont("tlwgtypo", int(300 * WIN_SCALE), True)
         self.image = self.get_bg_image()
         self.rect = self.image.get_rect(topleft=(0, 0))
 
@@ -408,9 +494,9 @@ class StartScreen:
         self.is_restart = is_restart
         self.change_state_timer = random.randint(5000, 10000)
         self.change_state_counter = pygame.time.get_ticks()
-        animate_dino_scale = 5
-        self.animate_dino = Dino(self.game_class.scene, 250, 500,
-                                 100 * animate_dino_scale, 80 * animate_dino_scale)
+        self.animate_dino_scale = 8
+        self.animate_dino = Dino(self.game_class.scene, (100 * self.animate_dino_scale) / 2, HEIGHT - 100,
+                                 100 * self.animate_dino_scale, 80 * self.animate_dino_scale)
 
     def get_bg_image(self):
         bg_image = load("assets/deserttileset/BG2.png").convert_alpha()
@@ -520,15 +606,21 @@ class StartScreen:
                 if event.type == pygame.QUIT:
                     self.running = False
                     self.game_class.play = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_t:
+                        self.game_class.scene.take_screenshot()
+                    if event.key == pygame.K_ESCAPE:
+                        self.running = False
+                        self.game_class.play = False
 
             pygame.display.update()
-            self.clock.tick(60)
+            self.clock.tick(self.game_class.FPS)
 
 
 class FailScreen:
     def __init__(self, scene, font_name: str = None, font_size: int = None):
         self.scene: Scene = scene
-        self.font = SysFont(font_name, font_size, True)
+        self.font = SysFont(font_name, int(font_size * WIN_SCALE), True)
 
         self.surface = pygame.Surface(WIN_SIZE)
         self.surface.fill("black")
@@ -573,7 +665,7 @@ class FailScreen:
     def draw_surface(self, color: str | tuple = "black"):
         # self.surface.fill(color)
         self.scene.window.blit(self.surface, self.rect)
-        if self.rect.midbottom[1] < HEIGHT:
+        if self.rect.bottom < HEIGHT:
             self.rect.y += self.surface_speed
         else:
             self.draw_buttons()
@@ -596,6 +688,50 @@ class FailScreen:
             self.scene.running = False
 
 
+class PauseScreen:
+    def __init__(self, scene):
+        self.scene: Scene = scene
+
+        self.font = SysFont("arial", int(40 * WIN_SCALE), True)
+
+        self.surface = pygame.Surface((WIDTH // 1.5, HEIGHT // 1.5))
+        self.surface.fill("white")
+        self.surface.set_alpha(200)
+        self.y = - self.surface.get_height()
+        self.rect = self.surface.get_rect(topleft=(
+            (WIDTH - self.surface.get_width()) // 2,
+            (HEIGHT - self.surface.get_height()) // 2)
+        )
+        self.surface_speed = 2
+        self.is_finished = False
+
+        self.play_btn = self.get_play_button()
+
+    def draw_surface(self, color: str | tuple = "black"):
+        # self.surface.fill(color)
+        self.scene.window.blit(self.surface, self.rect)
+
+        pygame.draw.rect(self.surface, 'aqua', (0, self.y, self.surface.get_width(), self.surface.get_height()))
+        if self.y < 0:
+            self.y += self.surface_speed
+        else:
+            self.is_finished = True
+
+        if self.is_finished:
+            self.play_btn.draw(self.surface)
+            if self.play_btn.is_clicked:
+                self.scene.is_pause = False
+                self.play_btn.is_clicked = False
+
+    def get_play_button(self):
+        image = load("assets/others/play.png").convert_alpha()
+        image = scale(image, (100, 100))
+        return ImageButton(image,
+                           self.rect.x + (self.rect.width - image.get_width()) // 2,
+                           self.rect.y + (self.rect.height - image.get_height()) // 2
+                           )
+
+
 class Scene:
 
     def __init__(self, game_class):
@@ -607,20 +743,28 @@ class Scene:
         self.clock = pygame.time.Clock()
 
         self.running = True
-        self.bg_speed = 1
+        self.is_pause = False
+        self.bg_speed = 4 * SCALE
         self.is_freeze = True
 
-        self.fail_screen = FailScreen(self, "tlwgtypo", 40)
-        self.dino = Dino(self, 200, HEIGHT - 3 * TILE_SIZE, 100, 80)
+        self.fail_screen = FailScreen(self, "tlwgtypo", int(40 * SCALE))
+        self.pause_screen = PauseScreen(self)
+        self.dino = Dino(self, 200, HEIGHT - 3 * TILE_SIZE, DINO_WIDTH, DINO_HEIGHT)
         self.bg = Bg(self)
 
         self.obstacle_list = []
         self.obstacle_dict: dict = {}
         self.generate_duration = 5000
         self.generate_ticks = None
-        self.generate_type_number = random.randint(1, 10)
+        self.rotate_ticks = 0
 
-        self.font = SysFont("tlwgtypo", 100, True)
+        self.font = SysFont("tlwgtypo", int(100 * WIN_SCALE), True)
+
+        self.score = 0
+        self.score_table = Write(self, "Score", "darkred")
+        self.bg_speed_table = Write(self, "BG Speed", "darkred")
+
+        self.is_change_speed = False
 
     def take_screenshot(self):
         os.makedirs("screenshots", exist_ok=True)
@@ -643,14 +787,16 @@ class Scene:
         return int((current_freeze_time - freeze_start_time) // 1), seconds
 
     def generate_obstacle(self):
+        generate_type_number = random.randint(1, 10)
         current_ticks = pygame.time.get_ticks()
         if current_ticks - self.generate_ticks > self.generate_duration:
-            x = random.randint(WIDTH + 10, WIDTH + 400)
 
-            if self.generate_type_number < 1:
+            if generate_type_number < 8:
+                x = random.randint(WIDTH + 300, WIDTH + 500)
                 obstacle = Obstacle(self, x, HEIGHT - 2 * TILE_SIZE + 5)
             else:
-                obstacle = Helicopter(self, 150, 50, x, HEIGHT - 2 * TILE_SIZE - self.dino.height)
+                x = random.randint(WIDTH + 10, WIDTH + 100)
+                obstacle = Helicopter(self, HELICOPTER_WIDTH, HELICOPTER_HEIGHT, x, HEIGHT - 2 * TILE_SIZE - self.dino.height // 1.5)
 
             self.obstacle_list.append(obstacle)
             self.generate_ticks = pygame.time.get_ticks()
@@ -675,27 +821,59 @@ class Scene:
             self.window.fill("white")
 
             self.bg.draw()
-            self.bg.update()
+            if not self.is_pause:
+                self.bg.update()
 
-            if self.is_freeze:
+            self.score_table.draw(20, 20, int(self.score))
+            self.bg_speed_table.draw(20, 70, self.bg.speed)
+
+            if self.is_freeze and not self.is_pause:
                 freeze_time = self.get_freeze_state(freeze_start_time)
                 self.draw_freeze_time(freeze_time)
+            else:
+                freeze_start_time = time.perf_counter()
 
-            if self.dino.alive:
+            if self.dino.alive and not self.is_pause and not self.is_freeze:
                 self.generate_obstacle()
 
             if self.obstacle_list:
                 for index, obstacle in enumerate(self.obstacle_list):
                     if obstacle.is_active:
                         obstacle.draw()
-                        obstacle.update()
+
+                        if self.dino.alive and not self.is_pause:
+                            obstacle.update()
                     else:
                         self.obstacle_list.pop(index)
 
             self.dino.draw()
-            self.dino.update()
+            if not self.is_pause:
+                self.dino.update()
 
-            if not self.dino.alive:
+            if not self.is_freeze and not self.is_pause and self.dino.alive:
+                self.score += 0.1
+
+                if int(self.score) != 0:
+                    if not round(self.score, 2) % 100:
+                        self.bg.speed += 1
+                        self.dino.jump_force -= 1
+                        if self.dino.down_timer > 1000:
+                            self.dino.down_timer -= 100
+                        self.game_class.GRAVITY += 0.1
+
+                    if not round(self.score, 2) % 175:
+                        self.dino.is_change_speed = True
+
+                    if not round(self.score, 2) % 40 and self.generate_duration > 1500:
+                        self.generate_duration -= 200
+
+                    if not round(self.score, 2) % 300:
+                        Helicopter.change_speed(1)
+
+            if self.is_pause:
+                self.pause_screen.draw_surface()
+
+            if not self.dino.alive and not self.is_pause:
                 self.fail_screen.draw_surface()
 
             for event in pygame.event.get():
@@ -704,9 +882,6 @@ class Scene:
                     self.game_class.play = False
 
                 if event.type == pygame.KEYDOWN:
-                    if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
-                        if self.dino.alive and self.dino.on_ground and self.dino.state != "Idle":
-                            self.dino.is_jumping = True
 
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
@@ -715,14 +890,30 @@ class Scene:
                     if event.key == pygame.K_t:
                         self.take_screenshot()
 
+                    if not self.is_pause:
+
+                        if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
+                            if self.dino.alive and self.dino.on_ground and self.dino.state != "Idle":
+                                self.dino.is_jumping = True
+
+                        if event.key in (pygame.K_s, pygame.K_DOWN) and self.dino.state not in ("Idle", "Down", "Jump"):
+                            self.dino.change_state("Down")
+                            self.dino.down_ticks = pygame.time.get_ticks()
+
+                        if event.key == pygame.K_r:
+                            self.is_pause = not self.is_pause
+
             pygame.display.update()
-            self.clock.tick(60)
+            self.clock.tick(self.game_class.FPS)
 
 
 class Game:
 
     def __init__(self):
+        self.FPS = 60
         self.play = True
+
+        self.GRAVITY = 0.55 * SCALE
 
         self.scene = Scene(self)
         self.start_screen = StartScreen(self, )
@@ -736,6 +927,7 @@ class Game:
                 self.scene.run()
             else:
                 self.start_screen.run()
+                # self.scene.run()
 
 
 if __name__ == '__main__':
