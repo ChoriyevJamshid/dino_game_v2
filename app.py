@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import cv2
 
 import pygame
 from pygame.image import load
@@ -12,18 +13,19 @@ from pygame.font import SysFont
 pygame.init()
 pygame.font.init()
 
-
 WIN_SCALE = 1.4
 
 WIN_SIZE = WIDTH, HEIGHT = int(1000 * WIN_SCALE), int(600 * WIN_SCALE)
-TILE_SIZE = 50
+TILE_SIZE = int(50 * WIN_SCALE)
 GRAVITY = 0.55
-
-SCALE = 1
+DEBUG = True
+SCALE = 1.4
 # Dino
 DINO_WIDTH = 100 * SCALE
 DINO_HEIGHT = 0.8 * DINO_WIDTH
 DINO_DOWN_TIMER = 60
+
+COMMANDS = ['alive']
 
 # Obstcle
 CACTUS_WIDTH = 40 * SCALE
@@ -111,7 +113,7 @@ class Bg:
 
         self.tilemap.draw()
 
-        if not self.scene.is_pause:
+        if not self.scene.is_pause and self.scene.dino.alive:
             self.pause_btn.draw(self.scene.window, x=WIDTH - self.pause_btn.rect.width - 20, y=20)
             if self.pause_btn.is_clicked:
                 self.pause_btn.is_clicked = False
@@ -142,7 +144,7 @@ class Obstacle:
     def __init__(self, scene, x, y):
         self.scene: Scene = scene
 
-        self.obstacle_names = ("Crate",)
+        self.obstacle_names = ("Crate", "StoneBlock", "Stone", "Cactus (1)", "Cactus (3)",)
         self.images: dict = self.get_images()
         self.image_name = random.choice(tuple(self.images.keys()))
         self.frame_index = 0
@@ -304,6 +306,8 @@ class Dino:
         self.down_ticks = 0
         self.down_counter = 0
 
+        self.__cheet_live: bool = False
+
     def get_images(self) -> dict:
         image_dict: dict = {}
         main_path = "assets/dino"
@@ -376,6 +380,15 @@ class Dino:
 
         self.rect.y += dy
 
+    def cheet_live_active(self, value: bool):
+        if value is True:
+
+            self.__cheet_live = True
+        else:
+            self.__cheet_live = False
+
+
+
     def collide_obstacle(self):
         if self.alive:
             for obstacle in self.scene.obstacle_list:
@@ -383,10 +396,12 @@ class Dino:
                 if isinstance(obstacle, Obstacle):
                     if obstacle.rect.colliderect(self.rect.x + 15, y, self.rect.width // 2,
                                                  self.rect.height // 1.5):
-                        self.alive = False
-                        self.change_state("Dead")
-                        self.scene.bg.speed = 0
-                        obstacle.rotate_speed = 0
+                        if not self.__cheet_live:
+                            self.alive = False
+                            self.change_state("Dead")
+                            self.scene.bg.speed = 0
+                            obstacle.rotate_speed = 0
+
 
                 else:
                     y = 0
@@ -396,10 +411,12 @@ class Dino:
                     if (
                             obstacle.rect.x - self.rect.width // 3 < self.rect.x < obstacle.rect.x - self.rect.width // 3 + obstacle.rect.width // 2) and \
                             self.rect.top + 10 + y < obstacle.rect.bottom:
-                        self.alive = False
-                        self.change_state("Dead")
-                        self.scene.bg.speed = 0
-                        obstacle.rotate_speed = 0
+                        if not self.__cheet_live:
+                            self.alive = False
+                            self.change_state("Dead")
+                            self.scene.bg.speed = 0
+                            obstacle.rotate_speed = 0
+
 
     def change_state(self, new_state: str):
         if self.state != new_state:
@@ -468,18 +485,115 @@ class ImageButton(Button):
     def __init__(self, image, x, y):
         super().__init__(image, x, y)
 
-    def draw(self, window: pygame.Surface, x: int = None, y: int = None):
+    def draw(self, window: pygame.Surface, x: int = None, y: int = None, rect: pygame.Rect = None):
         if not x and not y:
             x = (window.get_width() - self.rect.width) // 2
             y = (window.get_height() - self.rect.height) // 2
 
         window.blit(self.image, (x, y))
-
-        if self.rect.x < mouse_pos()[0] < self.rect.x + self.rect.width and \
-                self.rect.y < mouse_pos()[1] < self.rect.y + self.rect.height:
+        dx = self.rect.x
+        dy = self.rect.y
+        if rect:
+            dx = rect.x + rect.width - self.rect.width - 10
+            dy = rect.y + 10
+        if dx < mouse_pos()[0] < dx + self.rect.width and \
+                dy < mouse_pos()[1] < dy + self.rect.height:
+            # print(mouse_pos())
             if not self.is_clicked and mouse_press()[0] == 1:
                 self.is_clicked = True
 
+
+class Console:
+    def __init__(self, _class):
+        self._class: PauseScreen = _class
+        self.font = SysFont("sans", 20)
+        self.surface = pygame.Surface(self._class.rect.size)
+        self.rect = self.surface.get_rect(topleft=(0, 0))
+        self.commands = self._class.scene.game_class.commands
+        self.command: pygame.Surface = None
+        self.text: str = ""
+
+        self.input_active = False
+        self.color = "grey"
+        self.input_table = self.font.render(self.text, True, "white")
+
+        self.input_rect = pygame.Rect(
+            self.rect.x + 20,
+            self.rect.height - self.input_table.get_height() - 20,
+            self.rect.width - 40,
+            self.input_table.get_height()
+        )
+
+        self.console_text = self.font.render("Console", True, "White")
+        self.console_text_rect = self.console_text.get_rect(topleft=(
+            (self.rect.width - self.console_text.get_width()) // 2,
+            0 + 20)
+        )
+
+        self.close_btn = self.get_close_button()
+
+    def draw(self):
+        self._class.surface.blit(self.surface, self.rect)
+        self.surface.fill("black")
+        if self.commands:
+            y = self.console_text_rect.height + 40
+            for command in self.commands:
+                self.surface.blit(command, (20, y))
+                y += 35
+                if y > self.rect.height - self.console_text_rect.height - 20:
+                    self.commands = self.commands[-1:]
+                    y = self.console_text_rect.height + 40
+
+        rect = self.console_text_rect
+        pygame.draw.rect(self.surface, "blue",
+                         (self.rect.x + 10, self.rect.y + 10, self.rect.width - 20, rect.height + 20))
+        self.surface.blit(self.console_text, self.console_text_rect)
+
+        pygame.draw.rect(self.surface, self.color,
+                         (self.input_rect.x - 10, self.input_rect.y - 10,
+                          self.input_rect.width + 20, self.input_rect.height + 20), 5)
+
+        self.close_btn.draw(
+            self.surface,
+            x=self.rect.width - self.close_btn.rect.width - 10,
+            y=10,
+            rect=self._class.rect
+        )
+        if self.close_btn.is_clicked:
+            self._class.console_active = False
+            self.close_btn.is_clicked = False
+
+        self.input_text()
+
+    def input_text(self):
+        if mouse_press()[0] == 1:
+            if self._class.rect.x + 20 < mouse_pos()[0] < self._class.rect.x + self._class.rect.width - 40 and \
+                    self._class.rect.y + self.rect.height - self.input_table.get_height() - 20 < mouse_pos()[1] < \
+                    self._class.rect.y + self.rect.height - 20:
+                self.input_active = True
+            else:
+                self.input_active = False
+
+        self.color = "grey"
+        if self.input_active:
+            self.color = "red"
+            text = self.text + "|"
+            self.input_table = self.font.render(text, False, "white")
+            self.surface.blit(self.input_table, self.input_rect)
+
+    def get_close_button(self):
+        image = load("assets/others/close.png").convert_alpha()
+        image = scale(image, (40, 40))
+        return ImageButton(image, 0, 0)
+
+    def check_command(self, command: str):
+
+        command, value = command.strip().split(" ")
+        if command == "alive":
+            if value == "1":
+                self._class.scene.dino.cheet_live_active(True)
+            else:
+                self._class.scene.dino.cheet_live_active(False)
 
 class Write:
     def __init__(self, scene, text: str):
@@ -549,8 +663,8 @@ class StartScreen:
         self.is_restart = is_restart
         self.change_state_timer = random.randint(5000, 10000)
         self.change_state_counter = pygame.time.get_ticks()
-        self.animate_dino_scale = 8
-        self.animate_dino = Dino(self.game_class.scene, (100 * self.animate_dino_scale) / 2, HEIGHT - 100,
+        self.animate_dino_scale = 6 * WIN_SCALE
+        self.animate_dino = Dino(self.game_class.scene, (100 * self.animate_dino_scale) / 2, HEIGHT - 100 * WIN_SCALE,
                                  100 * self.animate_dino_scale, 80 * self.animate_dino_scale)
 
     def get_bg_image(self):
@@ -662,6 +776,7 @@ class StartScreen:
                     self.running = False
                     self.game_class.play = False
                 if event.type == pygame.KEYDOWN:
+
                     if event.key == pygame.K_t:
                         self.game_class.scene.take_screenshot()
                     if event.key == pygame.K_ESCAPE:
@@ -691,6 +806,8 @@ class FailScreen:
         self.quit_btn: Button = self.get_quit_button()
         self.start_screen_btn: Button = self.get_start_screen_button()
 
+        self.taken_image = None
+
     def get_restart_button(self, color: str | tuple = "black") -> Button:
         image = self.font.render(f"Restart", True, color)
         btn = Button(
@@ -700,6 +817,13 @@ class FailScreen:
         )
 
         return btn
+
+    def get_taken_screenshot(self):
+        image_name = os.listdir("screenshots")[-1]
+        image = load(f"screenshots/{image_name}").convert_alpha()
+        image = pygame.transform.smoothscale(image, (WIDTH // 3, HEIGHT // 3))
+        image = pygame.transform.rotate(image, 15)
+        return image
 
     def get_quit_button(self, color: str | tuple = "black") -> Button:
         image = self.font.render(f"Quit", True, color)
@@ -732,6 +856,9 @@ class FailScreen:
             self.scene.bg_speed_table.draw(20, 70, int(self.scene.bg.speed), "white")
             self.scene.timer_table.draw_timer(20, 120, self.scene.timer, "white")
 
+            if self.taken_image:
+                self.scene.window.blit(self.taken_image, (25, HEIGHT // 4))
+
     def draw_buttons(self):
 
         if self.start_screen_btn.draw(self.scene.window):
@@ -763,38 +890,65 @@ class PauseScreen:
 
         self.surface = pygame.Surface((WIDTH // 2, HEIGHT // 2))
         self.surface.fill("white")
-        self.surface.set_alpha(100)
+        self.surface.set_alpha(200)
         self.y = - self.surface.get_height()
         self.rect = self.surface.get_rect(topleft=(
             (WIDTH - self.surface.get_width()) // 2,
             (HEIGHT - self.surface.get_height()) // 2)
         )
-        self.surface_speed = 2
+        self.surface_speed = 5
         self.is_finished = False
 
         self.play_btn = self.get_play_button()
+        self.console_btn = self.get_console_button()
 
-    def draw_surface(self, color: str | tuple = "black"):
+        self.console = Console(self)
+        self.console_active = False
+
+    def draw_surface(self, color: str | tuple = "aqua"):
         # self.surface.fill(color)
         self.scene.window.blit(self.surface, self.rect)
 
-        pygame.draw.rect(self.surface, 'aqua', (0, self.y, self.surface.get_width(), self.surface.get_height()))
+        pygame.draw.rect(self.surface, color, (0, self.y, self.surface.get_width(), self.surface.get_height()))
         if self.y < 0:
             self.y += self.surface_speed
         else:
             self.is_finished = True
 
-        if self.is_finished:
-            self.play_btn.draw(self.scene.window)
+        if self.is_finished and not self.console_active:
+            self.play_btn.draw(self.scene.window,
+                               self.rect.x + (self.rect.width - self.play_btn.rect.width) // 2 - 75,
+                               self.rect.y + (self.rect.height - self.play_btn.rect.height) // 2
+                               )
             if self.play_btn.is_clicked:
                 self.scene.is_pause = False
                 self.play_btn.is_clicked = False
+
+            self.console_btn.draw(self.scene.window,
+                                  self.rect.x + (self.rect.width - self.console_btn.rect.width) // 2 + 75,
+                                  self.rect.y + (self.rect.height - self.console_btn.rect.height) // 2
+                                  )
+
+            if self.console_btn.is_clicked:
+                self.console_btn.is_clicked = False
+                self.console_active = True
+
+        if self.console_active:
+            self.console.draw()
 
     def get_play_button(self):
         image = load("assets/others/play.png").convert_alpha()
         image = scale(image, (100, 100))
         return ImageButton(image,
-                           self.rect.x + (self.rect.width - image.get_width()) // 2,
+                           self.rect.x + (self.rect.width - image.get_width()) // 2 - 75,
+                           self.rect.y + (self.rect.height - image.get_height()) // 2
+                           )
+
+    def get_console_button(self):
+        image = load("assets/others/command-line.png").convert_alpha()
+        image = scale(image, (100, 100))
+        return ImageButton(image,
+                           self.rect.x + (self.rect.width - image.get_width()) // 2 + 75,
                            self.rect.y + (self.rect.height - image.get_height()) // 2
                            )
 
@@ -809,15 +963,15 @@ class Scene:
         pygame.display.set_caption('Dino')
         self.clock = pygame.time.Clock()
 
-        self.bg_speed = 4 * SCALE
+        self.bg_speed = 4
         self.running = True
         self.is_pause = False
         self.is_freeze = True
         self.is_change_speed = False
 
         self.fail_screen = FailScreen(self, "tlwgtypo", int(40 * SCALE))
-        self.pause_screen = PauseScreen(self)
-        self.dino = Dino(self, 200, HEIGHT - 3 * TILE_SIZE, DINO_WIDTH, DINO_HEIGHT)
+        self.pause_screen: PauseScreen = PauseScreen(self)
+        self.dino = Dino(self, 200 * SCALE, HEIGHT - 3 * TILE_SIZE, DINO_WIDTH, DINO_HEIGHT)
         self.bg = Bg(self)
 
         self.obstacle_list: list = []
@@ -837,13 +991,20 @@ class Scene:
         self.score_table = Write(self, "Score")
         self.bg_speed_table = Write(self, "BG Speed")
         self.timer_table = Write(self, "Timer")
+        self.take_scr = True
+        self.saved_key = None
 
     def take_screenshot(self):
         os.makedirs("screenshots", exist_ok=True)
-        time_taken = time.asctime(time.localtime(time.time()))
-        time_taken = time_taken.replace(" ", "_")
-        time_taken = time_taken.replace(":", "_")
-        save_file = f"screenshots/{time_taken}.png"
+        # time_taken = time.asctime(time.localtime(time.time()))
+        # time_taken = time_taken.replace(" ", "_")
+        # time_taken = time_taken.replace(":", "_")
+        generate = 1
+        file_name = f"{generate}.png"
+        while file_name in os.listdir("screenshots"):
+            file_name = f"{generate}.png"
+            generate += 1
+        save_file = f"screenshots/{file_name}"
         pygame.image.save(self.window, save_file)
 
     def get_freeze_state(self, freeze_start_time, seconds=4):
@@ -890,6 +1051,8 @@ class Scene:
         self.generate_ticks = pygame.time.get_ticks()
         self.rotate_ticks = pygame.time.get_ticks()
 
+        image = cv2.imread("screenshots/1.png")
+
         while self.running:
             self.window.fill("white")
 
@@ -931,28 +1094,34 @@ class Scene:
                 self.dino.update()
 
             if not self.is_freeze and not self.is_pause and self.dino.alive:
-                self.score += 0.1
+                self.score += 0.1 * 20
+
+                self.dino.jump_force = -12 * SCALE - 20
+                self.game_class.GRAVITY = 0.55 * SCALE + 2
 
                 if int(self.score) != 0:
-                    if not round(self.score, 2) % 100 and self.bg.speed < 20:
-                        self.bg.speed += 1
-                        self.dino.jump_force -= 1
+                    if not round(self.score, 2) % 100:
+                        if self.bg.speed < 16:
+                            self.bg.speed += 1
+                            # self.dino.jump_force -= 1
+                            # self.game_class.GRAVITY += 0.1
 
-                        if self.dino.down_timer > 30:
+                        if self.dino.down_timer > 20:
                             self.dino.down_timer -= 2
-
-                        self.game_class.GRAVITY += 0.1
-                        self.generate_random += 0
 
                     if not round(self.score, 2) % 175 and self.dino.anim_speed > 2:
                         self.dino.is_change_speed = True
 
-                    if not round(self.score, 2) % 250 and self.generate_duration > 60:
+                    if not round(self.score, 2) % 250 and self.generate_duration > 33:
                         self.generate_duration -= 20
+                        if self.generate_duration < 33:
+                            self.generate_duration = 33
 
                     if not round(self.score, 2) % 200:
-                        Helicopter.add_speed()
-                        Obstacle.add_speed()
+                        if Helicopter.SPEED < 3:
+                            Helicopter.add_speed()
+                        if Obstacle.SPEED < 3:
+                            Obstacle.add_speed()
                         Obstacle.change_anim_speed()
 
             if self.is_pause:
@@ -960,6 +1129,10 @@ class Scene:
 
             if not self.dino.alive and not self.is_pause:
                 self.fail_screen.draw_surface()
+                if self.take_scr:
+                    self.take_screenshot()
+                    self.fail_screen.taken_image = self.fail_screen.get_taken_screenshot()
+                    self.take_scr = False
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -967,13 +1140,47 @@ class Scene:
                     self.game_class.play = False
 
                 if event.type == pygame.KEYDOWN:
+                    if self.pause_screen.console_active and self.pause_screen.console.input_active:
+                        key = event.key
+                        if event.key in (1073742053, 1073742049):
+                            self.saved_key = event.key
+                            continue
+                        if self.saved_key is not None:
+                            self.saved_key = None
+                            if event.key == 45:
+                                key += 50
+                            elif event.key == 59:
+                                key -= 1
+                        if event.key == 8:
+                            self.pause_screen.console.text = self.pause_screen.console.text[:-1]
+                        else:
+                            try:
+                                self.pause_screen.console.text += event.unicode
+                            except Exception as e:
+                                print(e)
+                        if event.key == pygame.K_RETURN:
+                            self.pause_screen.console.commands.append(
+                                self.pause_screen.console.font.render(
+                                    self.pause_screen.console.text,
+                                    True,
+                                    'white'
+                                )
+                            )
+                            self.pause_screen.console.check_command(self.pause_screen.console.text)
+                            self.pause_screen.console.text = ""
 
                     if event.key == pygame.K_ESCAPE:
-                        self.running = False
-                        self.game_class.play = False
+                        if self.pause_screen.console_active:
+                            self.pause_screen.console_active = False
+                        elif self.is_pause:
+                            self.is_pause = False
+                        else:
+                            self.running = False
+                            self.game_class.play = False
 
                     if event.key == pygame.K_t:
                         self.take_screenshot()
+
 
                     if not self.is_pause:
 
@@ -997,17 +1204,23 @@ class Game:
     def __init__(self):
         self.FPS = 60
         self.play = True
+        self.commands = []
 
         self.GRAVITY = GRAVITY * SCALE
 
         self.scene = Scene(self)
         self.start_screen = StartScreen(self, )
+        self.is_active_start = True if DEBUG else False
 
-        self.is_active_start = False
+    def remove_dirs(self):
+        image_names = os.listdir("screenshots")
+        while image_names:
+            image_name = image_names.pop()
+            os.remove(f"screenshots/{image_name}")
 
     def run(self):
         while self.play:
-
+            self.remove_dirs()
             if self.is_active_start:
                 self.scene.run()
             else:
