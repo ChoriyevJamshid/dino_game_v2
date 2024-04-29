@@ -1003,7 +1003,7 @@ class Game:
         self.scene = Scene(self)
         self.start_screen = StartScreen(self, )
 
-        self.is_active_start = True
+        self.is_active_start = False
 
     def run(self):
         while self.play:
